@@ -1,0 +1,128 @@
+name: E2E Test Suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------
+  # These two jobs are intentionally independent (no `needs:`
+  # between them), so GitHub Actions schedules them in parallel.
+  # Because the app under test has known bugs, failures in one
+  # environment's suite must NOT block or delay the other's.
+  # ---------------------------------------------------------------
+
+  test-dev:
+    name: E2E Tests - dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start API container
+        run: docker run -d -p 3000:3000 --name api-under-test ghcr.io/danielsilva-loanpro/sdet-interview-challenge:latest
+
+      - name: Wait for API to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/dev/users > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            echo "Waiting for API... ($i)"
+            sleep 2
+          done
+          echo "API did not become ready in time"
+          docker logs api-under-test
+          exit 1
+
+      - name: Run test suite against dev
+        env:
+          API_ENV: dev
+          BASE_URL: http://localhost:3000
+          AUTH_TOKEN: mysecrettoken
+        run: pytest --html=report-dev.html --self-contained-html
+        continue-on-error: true
+        id: run-tests
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-dev
+          path: report-dev.html
+
+      - name: Show container logs on failure
+        if: steps.run-tests.outcome == 'failure'
+        run: docker logs api-under-test
+
+      - name: Fail the job if tests failed
+        if: steps.run-tests.outcome == 'failure'
+        run: exit 1
+
+  test-prod:
+    name: E2E Tests - prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start API container
+        run: docker run -d -p 3000:3000 --name api-under-test ghcr.io/danielsilva-loanpro/sdet-interview-challenge:latest
+
+      - name: Wait for API to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/prod/users > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            echo "Waiting for API... ($i)"
+            sleep 2
+          done
+          echo "API did not become ready in time"
+          docker logs api-under-test
+          exit 1
+
+      - name: Run test suite against prod
+        env:
+          API_ENV: prod
+          BASE_URL: http://localhost:3000
+          AUTH_TOKEN: mysecrettoken
+        run: pytest --html=report-prod.html --self-contained-html
+        continue-on-error: true
+        id: run-tests
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-prod
+          path: report-prod.html
+
+      - name: Show container logs on failure
+        if: steps.run-tests.outcome == 'failure'
+        run: docker logs api-under-test
+
+      - name: Fail the job if tests failed
+        if: steps.run-tests.outcome == 'failure'
+        run: exit 1
