@@ -1,1 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
 report.html
+report-dev.html
+report-prod.html
+.DS_Store
+.vscode/
